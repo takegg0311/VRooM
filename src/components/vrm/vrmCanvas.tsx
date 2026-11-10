@@ -7,6 +7,7 @@ import { Room } from './room'
 import { DropZoneFullScreen } from './element/dropZoneFullScreen'
 import { useEffect, useState } from 'react'
 import { environmentType, useSettingsStore } from 'src/stores/settingsStore'
+import { useVrmStore } from 'src/stores/vrmStore'
 import shallow from 'zustand/shallow'
 
 // drei 9.36 の preset は閉鎖された CDN（market-assets.fra1.cdn.digitaloceanspaces.com）を参照するため、
@@ -34,6 +35,12 @@ const VRMCanvas = () => {
     }),
     shallow,
   )
+  const fetchModels = useVrmStore((state) => state.fetchModels)
+
+  useEffect(() => {
+    void fetchModels()
+  }, [fetchModels])
+
   return (
     <>
       <Canvas camera={{ fov: 20 }} shadows flat style={{ height: size.height }}>

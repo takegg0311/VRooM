@@ -4,22 +4,17 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import * as THREE_VRM from '@pixiv/three-vrm'
 import * as THREE from 'three'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { loadMixamoAnimation } from 'src/components/vrm/loadMixamoAnimation'
 import shallow from 'zustand/shallow'
 import { useVrmStore } from 'src/stores/vrmStore'
 import GUI from 'lil-gui'
 import { useThree } from '@react-three/fiber'
 import { useSettingsStore } from 'src/stores/settingsStore'
-
-type modelNameToUrl = {
-  AliciaSolid: string
-  Miraikomachi: string
-}
-const modelNameToUrl = {
-  AliciaSolid: '/models/AliciaSolid.vrm',
-  Miraikomachi: '/models/Miraikomachi.vrm',
-} as modelNameToUrl
+import {
+  BUILTIN_VRM_MODELS,
+  DEFAULT_VRM_MODEL_ID,
+} from 'src/utils/vrmModels'
 
 export const AnimationNames = [
   'AirSquatBentArms',
@@ -43,23 +38,33 @@ const emotes = [
   'StandingGreeting',
 ]
 
+const LOAD_ERROR_MESSAGE = 'モデルを読み込めませんでした'
+
 export const VRMAvatar = () => {
   const { gl, scene, camera } = useThree()
   const {
     animation,
     modelName,
     inputVrmModel,
+    models,
+    modelsStatus,
     emote,
     emoteFinish,
     setAnimation,
+    setModelName,
+    setInputVrmModel,
   } = useVrmStore(
     (state) => ({
       animation: state.animation,
       inputVrmModel: state.inputVrmModel,
       modelName: state.modelName,
+      models: state.models,
+      modelsStatus: state.modelsStatus,
       emote: state.emote,
       emoteFinish: state.emoteFinish,
       setAnimation: state.setAnimation,
+      setModelName: state.setModelName,
+      setInputVrmModel: state.setInputVrmModel,
     }),
     shallow,
   )
@@ -77,12 +82,42 @@ export const VRMAvatar = () => {
   const clearExpression = () => {
     if (expression) {
       vrm?.expressionManager?.setValue(expression.name, 0)
-      expression = undefined
     }
+    expression = undefined
   }
+
+  // 一覧の再取得だけで同じモデルを読み直さないよう、解決済み URL を依存にする
+  const resolvedModelUrl = useMemo(() => {
+    if (inputVrmModel) {
+      return null
+    }
+    const builtin = BUILTIN_VRM_MODELS.find((model) => model.id === modelName)
+    if (builtin) {
+      return builtin.url
+    }
+    if (modelsStatus === 'loading') {
+      return undefined
+    }
+    const found = models.find((model) => model.id === modelName)
+    return found ? found.url : null
+  }, [inputVrmModel, modelName, models, modelsStatus])
 
   /* ---------------------------------- 初期設定 ---------------------------------- */
   useEffect(() => {
+    if (!inputVrmModel && resolvedModelUrl === undefined) {
+      return
+    }
+    if (!inputVrmModel && resolvedModelUrl === null) {
+      // ファイル削除や静的配信で前回の私物モデルが残っていた場合
+      if (modelName !== DEFAULT_VRM_MODEL_ID) {
+        setModelName(DEFAULT_VRM_MODEL_ID)
+      }
+      return
+    }
+
+    let cancelled = false
+    let objectUrl: string | undefined
+
     setLoaded(false)
     gl.outputEncoding = THREE.sRGBEncoding
     light = new THREE.DirectionalLight(0xffffff)
@@ -97,16 +132,41 @@ export const VRMAvatar = () => {
         autoUpdateHumanBones: true,
       })
     })
-    let url = ''
+
+    let url = resolvedModelUrl ?? ''
     if (inputVrmModel) {
       const blob = new Blob([inputVrmModel], {
         type: 'application/octet-stream',
       })
-      url = URL.createObjectURL(blob)
+      objectUrl = URL.createObjectURL(blob)
+      url = objectUrl
     }
+
+    const handleLoadFailure = () => {
+      // 失敗時は前のアバターを残したまま既定モデルへ戻す
+      window.alert(LOAD_ERROR_MESSAGE)
+      if (modelName !== DEFAULT_VRM_MODEL_ID) {
+        // setModelName は inputVrmModel も解除する
+        setModelName(DEFAULT_VRM_MODEL_ID)
+        return
+      }
+      if (inputVrmModel) {
+        setInputVrmModel(undefined)
+      }
+    }
+
     loader.load(
-      url ? url : modelNameToUrl[modelName as keyof modelNameToUrl],
+      url,
       (gltf) => {
+        if (cancelled) {
+          return
+        }
+        const loadedVrm = gltf.userData.vrm as THREE_VRM.VRM | undefined
+        if (!loadedVrm) {
+          handleLoadFailure()
+          return
+        }
+
         if (vrm) {
           scene.remove(vrm.scene)
           THREE_VRM.VRMUtils.deepDispose(vrm.scene)
@@ -114,10 +174,10 @@ export const VRMAvatar = () => {
         THREE_VRM.VRMUtils.removeUnnecessaryVertices(gltf.scene)
         THREE_VRM.VRMUtils.removeUnnecessaryJoints(gltf.scene)
 
-        vrm = gltf.userData.vrm as THREE_VRM.VRM
+        vrm = loadedVrm
 
-        mixer = new THREE.AnimationMixer(gltf.userData.vrm.scene)
-        const currentVRM = gltf.userData.vrm
+        mixer = new THREE.AnimationMixer(loadedVrm.scene)
+        const currentVRM = loadedVrm
 
         currentVRM.scene.position.setY(-0.8)
         THREE_VRM.VRMUtils.rotateVRM0(vrm)
@@ -132,21 +192,29 @@ export const VRMAvatar = () => {
         AnimationNames.forEach((name) => {
           loadMixamoAnimation(name, `/animations/${name}.fbx`, currentVRM).then(
             (clip) => {
-              if (mixer) {
-                const action = mixer.clipAction(clip)
-                const name = clip.name
-                actions[name] = action
-                if (emotes.indexOf(name) >= 0) {
-                  action.clampWhenFinished = true
-                  action.loop = THREE.LoopOnce
-                }
-                if (name === animation) fadeToAction(animation, 0.5)
+              if (cancelled || !mixer) {
+                return
               }
+              const action = mixer.clipAction(clip)
+              const clipName = clip.name
+              actions[clipName] = action
+              if (emotes.indexOf(clipName) >= 0) {
+                action.clampWhenFinished = true
+                action.loop = THREE.LoopOnce
+              }
+              if (clipName === animation) fadeToAction(animation, 0.5)
             },
           )
         })
         scene.add(vrm.scene)
         setLoaded(true)
+      },
+      undefined,
+      () => {
+        if (cancelled) {
+          return
+        }
+        handleLoadFailure()
       },
     )
 
@@ -156,9 +224,13 @@ export const VRMAvatar = () => {
     // createGUI()
 
     return () => {
+      cancelled = true
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
       if (light) scene.remove(light)
     }
-  }, [modelName, inputVrmModel])
+  }, [resolvedModelUrl, inputVrmModel, modelName])
 
   /* ----------------------------- 基本的なアニメーションの処理 ----------------------------- */
   useEffect(() => {
