@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useVrmStore } from 'src/stores/vrmStore'
-import { isVrmModel } from 'src/utils/vrmModels'
+import { isVrmModel, MAX_VRM_UPLOAD_BYTES } from 'src/utils/vrmModels'
 
 const readErrorMessage = async (response: Response): Promise<string> => {
   try {
@@ -28,6 +28,12 @@ export const useVrmUpload = () => {
 
   const uploadVrmFile = useCallback(
     async (file: File) => {
+      // ブラウザ経路は送信前に弾き、サーバー側の 413 到達失敗で揮発インポートに落ちないようにする
+      if (file.size > MAX_VRM_UPLOAD_BYTES) {
+        window.alert('ファイルサイズが上限を超えています')
+        return
+      }
+
       try {
         const response = await fetch(
           `/api/models?name=${encodeURIComponent(file.name)}`,

@@ -10,11 +10,12 @@ import {
   getModelIdFromFile,
   getModelLabel,
   isVrmExtension,
+  MAX_VRM_UPLOAD_BYTES,
   VrmModel,
 } from 'src/utils/vrmModels'
 
 export const VRM_DIR = path.join(process.cwd(), 'data', 'vrm')
-export const MAX_VRM_UPLOAD_BYTES = 100 * 1024 * 1024
+export { MAX_VRM_UPLOAD_BYTES }
 
 let uploadMutex: Promise<void> = Promise.resolve()
 
@@ -161,36 +162,34 @@ export const removeFileIfExists = async (filePath: string): Promise<void> => {
   }
 }
 
-class SizeLimitExceededError extends Error {
-  constructor() {
-    super('upload size limit exceeded')
-    this.name = 'SizeLimitExceededError'
-  }
-}
-
-export const isSizeLimitExceededError = (
-  error: unknown,
-): error is SizeLimitExceededError => {
-  return error instanceof SizeLimitExceededError
-}
+export type WriteUploadResult = 'ok' | 'too_large'
 
 export const writeRequestBodyToFile = async (
   body: Readable,
   destPath: string,
   maxBytes: number,
-): Promise<void> => {
+): Promise<WriteUploadResult> => {
+  // 上限超過で Transform を error にすると pipeline が req を destroy し、
+  // Node 16 ではソケットごと切れて 413 を返せない。超過後は chunk を捨てて読み切る。
   let received = 0
+  let tooLarge = false
   const limiter = new Transform({
     transform(chunk, _encoding, callback) {
+      if (tooLarge) {
+        callback()
+        return
+      }
       received += chunk.length
       if (received > maxBytes) {
-        callback(new SizeLimitExceededError())
+        tooLarge = true
+        callback()
         return
       }
       callback(null, chunk)
     },
   })
   await pipeline(body, limiter, createWriteStream(destPath))
+  return tooLarge ? 'too_large' : 'ok'
 }
 
 export const validateVrmFile = async (filePath: string): Promise<boolean> => {

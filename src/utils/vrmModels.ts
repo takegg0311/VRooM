@@ -25,6 +25,9 @@ export const BUILTIN_VRM_MODELS: VrmModel[] = [
 
 export const DEFAULT_VRM_MODEL_ID = 'AliciaSolid'
 
+/** アップロード上限。サーバーとクライアントで共用する */
+export const MAX_VRM_UPLOAD_BYTES = 100 * 1024 * 1024
+
 const BUILTIN_LABELS: Record<string, string> = Object.fromEntries(
   BUILTIN_VRM_MODELS.map((model) => [model.id.toLowerCase(), model.label]),
 )

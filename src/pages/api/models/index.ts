@@ -3,7 +3,6 @@ import {
   allocateUniqueFileName,
   createTempUploadPath,
   ensureVrmDir,
-  isSizeLimitExceededError,
   linkTempToFinalName,
   listVrmModels,
   MAX_VRM_UPLOAD_BYTES,
@@ -51,11 +50,30 @@ const handlePost = async (req: NextApiRequest, res: NextApiResponse) => {
     return
   }
 
+  const contentLengthHeader = req.headers['content-length']
+  if (typeof contentLengthHeader === 'string') {
+    const contentLength = Number(contentLengthHeader)
+    if (Number.isFinite(contentLength) && contentLength > MAX_VRM_UPLOAD_BYTES) {
+      // 本文は読まずに捨て、413 を確実に返す
+      req.resume()
+      res.status(413).json({ error: 'File too large' })
+      return
+    }
+  }
+
   let tempPath: string | null = null
   try {
     await ensureVrmDir()
     tempPath = await createTempUploadPath()
-    await writeRequestBodyToFile(req, tempPath, MAX_VRM_UPLOAD_BYTES)
+    const writeResult = await writeRequestBodyToFile(
+      req,
+      tempPath,
+      MAX_VRM_UPLOAD_BYTES,
+    )
+    if (writeResult === 'too_large') {
+      res.status(413).json({ error: 'File too large' })
+      return
+    }
 
     const isValidVrm = await validateVrmFile(tempPath)
     if (!isValidVrm) {
@@ -83,10 +101,6 @@ const handlePost = async (req: NextApiRequest, res: NextApiResponse) => {
 
     res.status(201).json(savedModel)
   } catch (error) {
-    if (isSizeLimitExceededError(error)) {
-      res.status(413).json({ error: 'File too large' })
-      return
-    }
     console.error('POST /api/models failed', error)
     res.status(500).json({ error: 'Failed to save model' })
   } finally {
