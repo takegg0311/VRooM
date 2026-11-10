@@ -111,3 +111,20 @@ VRooM（webアプリ）は，誰かと一緒に作業をしている感覚を提
   * [Pradnya1208/Squats\-angle\-detection\-using\-OpenCV\-and\-mediapipe\_v1](https://github.com/Pradnya1208/Squats-angle-detection-using-OpenCV-and-mediapipe_v1) は膝を曲げる角度を算出して判定しているが、一般的にWebカメラの角度で膝を映すことは難しい。
   * 肘の位置を動的に認識することで、スクワットモード開始時点の肘のラインを基準とした肩の高さ（UP/DOWN）で判定するようなアルゴリズムを開発した。
   * 我々が採用した方法は、直観的かつ合理的な方法であった。
+
+## ローカル実行（Docker）
+Firebase（Authentication / Firestore）は Firebase Emulator Suite で代替するため、Firebase プロジェクトや API キーは不要です。
+
+1. ビルドして起動する
+   ```bash
+   docker compose up -d --build
+   ```
+2. 以下にアクセスする
+   - アプリ: http://localhost:3000 （ソースはボリュームマウントされているため、編集はホットリロードされる）
+   - Emulator UI: http://localhost:4000 （登録ユーザーや Firestore の `log` コレクションを確認できる）
+
+- 「テストアカウントでログイン」用のアカウントは、エミュレータの起動時に自動で作成されます（メールアドレスとパスワードの既定値は `docker-compose.yml` を参照）。
+- 「Googleでログイン」を選ぶと、エミュレータの画面で任意の偽アカウントを作ってログインできます。
+- エミュレータのデータは `docker compose stop` / `down` のときに保存され、次回起動時に読み込まれます（`firebase_data` ボリューム）。消す場合は `docker compose down -v` を実行します。
+- 実際の Firebase プロジェクトに接続する場合は、`cp .env.example .env` で作った `.env` に設定値を記入し、`NEXT_PUBLIC_USE_FIREBASE_EMULATOR=false` にします。
+- 使用ポート: 3000（アプリ）、4000（Emulator UI）、4400、4500、8081（Firestore）、9099（Auth）、9150
