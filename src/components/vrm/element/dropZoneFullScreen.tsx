@@ -1,22 +1,16 @@
 import { Group, Text, useMantineTheme } from '@mantine/core'
 import { IconUpload, IconMan, IconX } from '@tabler/icons'
 import { Dropzone, DropzoneProps } from '@mantine/dropzone'
-import { useVrmStore } from 'src/stores/vrmStore'
-import shallow from 'zustand/shallow'
+import { useVrmUpload } from 'src/hooks/useVrmUpload'
 
 export function DropZoneFullScreen(props: Partial<DropzoneProps>) {
   const theme = useMantineTheme()
-  const { setInputVrmModel } = useVrmStore(
-    (state) => ({
-      setInputVrmModel: state.setInputVrmModel,
-    }),
-    shallow,
-  )
+  const { uploadVrmFile } = useVrmUpload()
   return (
     <Dropzone.FullScreen
       onDrop={(files) => {
         console.log('accepted files', files)
-        setInputVrmModel(files[0])
+        void uploadVrmFile(files[0])
       }}
       onReject={(files) => console.log('rejected files', files)}
       {...props}
