@@ -32,3 +32,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# user-uploaded VRM models (keep the directory itself)
+/data/vrm/*
+!/data/vrm/.gitkeep

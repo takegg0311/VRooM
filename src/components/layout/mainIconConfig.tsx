@@ -20,9 +20,10 @@ interface IconConfigProps {
 }
 
 export function IconConfig({ opened, setOpened }: IconConfigProps) {
-  const { modelName, setModelName } = useVrmStore(
+  const { modelName, models, setModelName } = useVrmStore(
     (state) => ({
       modelName: state.modelName,
+      models: state.models,
       setModelName: state.setModelName,
     }),
     shallow,
@@ -52,11 +53,15 @@ export function IconConfig({ opened, setOpened }: IconConfigProps) {
             radius="md"
             size="md"
             value={modelName}
-            onChange={setModelName}
-            data={[
-              { value: 'AliciaSolid', label: 'アリシア・ソリッド' },
-              { value: 'Miraikomachi', label: 'ミライ小町' },
-            ]}
+            onChange={(value) => {
+              if (value) {
+                setModelName(value)
+              }
+            }}
+            data={models.map((model) => ({
+              value: model.id,
+              label: model.label,
+            }))}
           />
           <DropZone />
 
